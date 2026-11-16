@@ -42,3 +42,31 @@ def validate_dna(sequence):
 
     is_valid, _, _ = validate_dna_details(sequence)
     return is_valid
+
+
+def get_dna_statistics(sequence):
+    """Calculate DNA length and nucleotide counts."""
+
+    is_valid, cleaned, message = validate_dna_details(sequence)
+
+    if not is_valid:
+        return {"valid": False, "message": message}
+
+    length = len(cleaned)
+
+    counts = {
+        "A": cleaned.count("A"),
+        "T": cleaned.count("T"),
+        "C": cleaned.count("C"),
+        "G": cleaned.count("G")
+    }
+
+    gc_content = ((counts["G"] + counts["C"]) / length) * 100
+
+    return {
+        "valid": True,
+        "length": length,
+        "counts": counts,
+        "gc_content": round(gc_content, 2),
+        "message": "DNA statistics calculated successfully."
+    }
