@@ -225,3 +225,5 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 >>>>>>> e72013dccf3474aa2dc1b74ca83b97a16da541f3
+
+gpu-venv/
