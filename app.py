@@ -1,205 +1,289 @@
 
-import os
-import time
-import html
-
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
+import time
+from datetime import datetime
 
 from alignment import needleman_wunsch, smith_waterman
 from validation import validate_dna_details, get_dna_statistics
 
 
-# =====================================================
+# --------------------------------------------------
 # PAGE CONFIGURATION
-# =====================================================
+# --------------------------------------------------
 
 st.set_page_config(
     page_title="GeneWeaver | DNA Alignment",
     page_icon="🧬",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 
-# =====================================================
-# DARK DASHBOARD THEME
-# =====================================================
+# --------------------------------------------------
+# CUSTOM CSS
+# --------------------------------------------------
 
 st.markdown("""
 <style>
-
 .stApp {
-    background: #080d18;
+    background-color: #080d19;
     color: #f1f5f9;
 }
 
-.block-container {
-    max-width: 1600px;
+h1, h2, h3, h4, p, label {
+    color: #f1f5f9 !important;
+}
+
+.main .block-container {
     padding-top: 2rem;
     padding-bottom: 3rem;
+    max-width: 1450px;
 }
 
-h1, h2, h3, h4, p, label,
-.stMarkdown, .stCaption {
-    color: #e5edf7 !important;
-}
-
-[data-testid="stSidebar"] {
-    background: #101827;
-}
-
-[data-testid="stExpander"] {
-    background: #111827;
-    border: 1px solid #34445c;
-    border-radius: 10px;
-}
-
-[data-testid="stExpander"] summary {
-    background: #1b2638;
-}
-
-[data-testid="stExpander"] summary p {
-    color: white !important;
-}
-
-.stTextArea textarea,
-.stTextInput input,
-[data-baseweb="input"] input {
-    background: #151e30 !important;
-    color: white !important;
-    border: 1px solid #34445c !important;
-}
-
-[data-baseweb="select"] > div {
-    background: #151e30 !important;
-    color: white !important;
-}
-
-[data-baseweb="select"] span {
-    color: white !important;
-}
-
-[data-testid="stMetric"] {
-    background: #151e30;
-    border: 1px solid #34445c;
-    border-radius: 10px;
-    padding: 15px;
-}
-
-[data-testid="stMetricLabel"] {
-    color: #9fb2c9 !important;
-}
-
-[data-testid="stMetricValue"] {
-    color: white !important;
-}
-
-.stButton > button,
-.stDownloadButton > button {
-    background: #087eaa !important;
-    color: white !important;
-    border: 1px solid #16b6d4 !important;
-    border-radius: 7px;
-    font-weight: 600;
-}
-
-.stButton > button:hover,
-.stDownloadButton > button:hover {
-    background: #0b9bc4 !important;
-}
-
-.panel {
-    background: #111827;
-    border: 1px solid #29384e;
+div[data-testid="stMetric"] {
+    background: #172236;
+    border: 1px solid #34445e;
+    padding: 18px;
     border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 14px;
 }
 
-[data-testid="stChatMessage"] {
-    background: #151e30;
-    border: 1px solid #34445c;
-    border-radius: 10px;
+div[data-testid="stMetric"] label {
+    color: #dbeafe !important;
 }
 
-[data-testid="stChatInput"] textarea {
-    background: #151e30 !important;
+div[data-testid="stMetricValue"] {
+    color: #ffffff !important;
+}
+
+.stTextInput input,
+.stTextArea textarea {
+    background-color: #172236 !important;
     color: white !important;
+    border: 1px solid #52627a !important;
+}
+
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder {
+    color: #aab7ca !important;
+}
+
+.stButton button,
+.stFormSubmitButton button {
+    background-color: #078bb5;
+    color: white;
+    border-radius: 8px;
+    border: none;
+    font-weight: bold;
+}
+
+.stButton button:hover,
+.stFormSubmitButton button:hover {
+    background-color: #06a6d3;
+    color: white;
+}
+
+section[data-testid="stSidebar"] {
+    background-color: #111a2b;
+}
+
+.chat-message {
+    background-color: #172236;
+    border: 1px solid #34445e;
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
 }
 
 hr {
-    border-color: #34445c !important;
+    border-color: #34445e;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
 
-# =====================================================
+# --------------------------------------------------
 # SESSION STATE
-# =====================================================
+# --------------------------------------------------
 
 if "alignment_result" not in st.session_state:
     st.session_state.alignment_result = None
 
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = [
+        {
+            "role": "assistant",
+            "content": (
+                "Hello! I am GeneWeaver Help Assistant. "
+                "Ask me about DNA alignment, FASTA files, "
+                "GC content, or the project."
+            )
+        }
+    ]
 
 
-# =====================================================
-# HEADER
-# =====================================================
-
-st.title("🧬 GeneWeaver")
-
-st.subheader("GPU-Accelerated CRISPR Alignment Engine")
-
-st.caption("DNA Sequence Comparison and Alignment Dashboard")
-
-st.divider()
-
-
-# =====================================================
+# --------------------------------------------------
 # FASTA FILE READER
-# =====================================================
+# --------------------------------------------------
 
 def read_fasta(uploaded_file):
-
     content = uploaded_file.getvalue().decode("utf-8")
 
-    sequences = []
-    current_sequence = ""
+    records = []
+    current_name = None
+    current_sequence = []
 
     for line in content.splitlines():
-
         line = line.strip()
 
         if not line:
             continue
 
         if line.startswith(">"):
+            if current_name is not None:
+                records.append((
+                    current_name,
+                    "".join(current_sequence)
+                ))
 
-            if current_sequence:
-                sequences.append(current_sequence)
-
-            current_sequence = ""
+            current_name = line[1:].strip() or "Unnamed sequence"
+            current_sequence = []
 
         else:
-            current_sequence += line
+            if current_name is None:
+                current_name = "Sequence 1"
 
-    if current_sequence:
-        sequences.append(current_sequence)
+            current_sequence.append(line)
 
-    return sequences
+    if current_name is not None:
+        records.append((
+            current_name,
+            "".join(current_sequence)
+        ))
+
+    return records
 
 
-# =====================================================
+# --------------------------------------------------
+# CHATBOT RESPONSE
+# --------------------------------------------------
+
+def chatbot_response(question):
+    q = question.lower().strip()
+
+    if not q:
+        return "Please enter a question."
+
+    if any(word in q for word in ["hello", "hi", "hey"]):
+        return (
+            "Hello! Welcome to GeneWeaver. "
+            "I can help you understand DNA alignment "
+            "and the features of this project."
+        )
+
+    if "needleman" in q or "global alignment" in q:
+        return (
+            "Needleman-Wunsch is a global DNA sequence "
+            "alignment algorithm. It compares two complete "
+            "sequences and finds the best overall alignment."
+        )
+
+    if "smith" in q or "local alignment" in q:
+        return (
+            "Smith-Waterman is a local alignment algorithm. "
+            "It identifies the best matching region between "
+            "two DNA sequences."
+        )
+
+    if "alignment" in q:
+        return (
+            "DNA sequence alignment compares DNA sequences "
+            "to identify matching bases, mismatches, and gaps. "
+            "GeneWeaver supports global and local alignment."
+        )
+
+    if "gc content" in q or "gc%" in q:
+        return (
+            "GC content is the percentage of G (guanine) "
+            "and C (cytosine) bases in a DNA sequence. "
+            "Formula: ((G + C) / Total bases) × 100."
+        )
+
+    if "fasta" in q:
+        return (
+            "FASTA is a text format used to store biological "
+            "sequences. A sequence starts with a header line "
+            "beginning with >, followed by the DNA sequence."
+        )
+
+    if "gpu" in q or "opencl" in q:
+        return (
+            "GeneWeaver includes experimental OpenCL support "
+            "for GPU-based alignment. Performance depends on "
+            "sequence length and hardware. Small sequences "
+            "may run faster on the CPU because GPU setup has overhead."
+        )
+
+    if "crisp" in q:
+        return (
+            "CRISPR is a gene-editing technology. GeneWeaver "
+            "is an educational DNA sequence alignment project "
+            "that compares sequences; it does not perform gene editing."
+        )
+
+    if "match" in q or "mismatch" in q:
+        return (
+            "A match occurs when two aligned DNA bases are the same. "
+            "A mismatch occurs when the bases are different."
+        )
+
+    if "project" in q or "geneweaver" in q:
+        return (
+            "GeneWeaver is a Python-based DNA sequence alignment "
+            "project. It includes Needleman-Wunsch global alignment, "
+            "Smith-Waterman local alignment, DNA validation, "
+            "statistics, visualizations, and experimental OpenCL support."
+        )
+
+    if "help" in q or "features" in q:
+        return (
+            "GeneWeaver features include manual DNA input, FASTA upload, "
+            "global and local alignment, alignment scores, DNA statistics, "
+            "charts, downloadable reports, and experimental OpenCL support."
+        )
+
+    return (
+        "I can help with DNA alignment, Needleman-Wunsch, "
+        "Smith-Waterman, FASTA files, GC content, DNA statistics, "
+        "CRISPR, and GeneWeaver project features. "
+        "Please try asking about one of these topics."
+    )
+
+
+# --------------------------------------------------
+# HEADER
+# --------------------------------------------------
+
+st.markdown(
+    "<h1 style='font-size:45px;'>🧬 GeneWeaver</h1>",
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    "## GPU-Accelerated CRISPR Alignment Engine"
+)
+
+st.caption("DNA Sequence Comparison and Alignment Dashboard")
+
+st.divider()
+
+
+# --------------------------------------------------
 # DNA INPUT
-# =====================================================
+# --------------------------------------------------
 
-st.subheader("DNA Sequence Input")
+st.header("DNA Sequence Input")
 
 input_method = st.radio(
     "Input Method",
@@ -209,6 +293,7 @@ input_method = st.radio(
 
 seq1 = ""
 seq2 = ""
+sequence_names = ["Sequence 1", "Sequence 2"]
 
 if input_method == "Manual Input":
 
@@ -218,69 +303,67 @@ if input_method == "Manual Input":
         seq1 = st.text_area(
             "First DNA Sequence",
             value="ATCGATCG",
-            height=120
+            height=110
         )
 
     with col2:
         seq2 = st.text_area(
             "Second DNA Sequence",
             value="ATCGTTCG",
-            height=120
+            height=110
         )
 
 else:
-
     uploaded_file = st.file_uploader(
         "Upload FASTA file",
         type=["fasta", "fa", "txt"]
     )
 
-    if uploaded_file:
-
+    if uploaded_file is not None:
         try:
+            records = read_fasta(uploaded_file)
 
-            sequences = read_fasta(uploaded_file)
-
-            if len(sequences) >= 2:
-
-                seq1 = sequences[0]
-                seq2 = sequences[1]
-
-                st.success("FASTA file uploaded successfully!")
-
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    st.write("First sequence")
-                    st.code(seq1)
-
-                with col2:
-                    st.write("Second sequence")
-                    st.code(seq2)
-
-                if len(sequences) > 2:
-                    st.info(
-                        "More than two sequences found. "
-                        "The first two will be compared."
-                    )
+            if len(records) < 2:
+                st.error("Please upload a FASTA file containing at least two sequences.")
 
             else:
-                st.error(
-                    "Please upload a FASTA file containing "
-                    "at least two sequences."
+                sequence_names = [
+                    records[0][0],
+                    records[1][0]
+                ]
+
+                seq1 = records[0][1]
+                seq2 = records[1][1]
+
+                st.success(
+                    f"Loaded {len(records)} sequence(s). "
+                    "The first two will be compared."
                 )
 
-        except UnicodeDecodeError:
-            st.error("Unable to read this file. Please use a text FASTA file.")
+                st.text_area(
+                    "First DNA Sequence",
+                    value=seq1,
+                    height=80,
+                    disabled=True
+                )
+
+                st.text_area(
+                    "Second DNA Sequence",
+                    value=seq2,
+                    height=80,
+                    disabled=True
+                )
+
+        except Exception as error:
+            st.error(f"Could not read FASTA file: {error}")
 
 
-# =====================================================
+# --------------------------------------------------
 # ALIGNMENT CONFIGURATION
-# =====================================================
+# --------------------------------------------------
 
 st.divider()
-
-st.subheader("Alignment Configuration")
+st.header("Alignment Configuration")
 
 c1, c2, c3, c4 = st.columns(4)
 
@@ -297,27 +380,27 @@ with c2:
     match_score = st.number_input(
         "Match Score",
         value=1,
-        min_value=1
+        step=1
     )
 
 with c3:
     mismatch_penalty = st.number_input(
         "Mismatch Penalty",
         value=-1,
-        max_value=0
+        step=1
     )
 
 with c4:
     gap_penalty = st.number_input(
         "Gap Penalty",
         value=-1,
-        max_value=0
+        step=1
     )
 
 
-# =====================================================
+# --------------------------------------------------
 # RUN ALIGNMENT
-# =====================================================
+# --------------------------------------------------
 
 if st.button("Run DNA Alignment", type="primary"):
 
@@ -325,795 +408,534 @@ if st.button("Run DNA Alignment", type="primary"):
     valid2, clean2, message2 = validate_dna_details(seq2)
 
     if not valid1:
-        st.error("Sequence 1: " + message1)
+        st.error(f"First sequence: {message1}")
 
-    if not valid2:
-        st.error("Sequence 2: " + message2)
+    elif not valid2:
+        st.error(f"Second sequence: {message2}")
 
-    if valid1 and valid2:
+    else:
+        try:
+            start_time = time.perf_counter()
 
-        start_time = time.perf_counter()
+            if algorithm.startswith("Needleman"):
+                aligned1, aligned2, score = needleman_wunsch(
+                    clean1,
+                    clean2,
+                    int(match_score),
+                    int(mismatch_penalty),
+                    int(gap_penalty)
+                )
+            else:
+                aligned1, aligned2, score = smith_waterman(
+                    clean1,
+                    clean2,
+                    int(match_score),
+                    int(mismatch_penalty),
+                    int(gap_penalty)
+                )
 
-        if algorithm == "Needleman-Wunsch (Global)":
+            execution_time = (
+                time.perf_counter() - start_time
+            ) * 1000
 
-            aligned1, aligned2, score = needleman_wunsch(
-                clean1,
-                clean2,
-                match=match_score,
-                mismatch=mismatch_penalty,
-                gap=gap_penalty
+            matches = sum(
+                a == b and a != "-"
+                for a, b in zip(aligned1, aligned2)
             )
 
-        else:
-
-            aligned1, aligned2, score = smith_waterman(
-                clean1,
-                clean2,
-                match=match_score,
-                mismatch=mismatch_penalty,
-                gap=gap_penalty
+            mismatches = sum(
+                a != b and a != "-" and b != "-"
+                for a, b in zip(aligned1, aligned2)
             )
 
-        execution_time = (
-            time.perf_counter() - start_time
-        ) * 1000
+            gaps = sum(
+                a == "-" or b == "-"
+                for a, b in zip(aligned1, aligned2)
+            )
 
-        matches = sum(
-            a == b and a != "-"
-            for a, b in zip(aligned1, aligned2)
-        )
+            total_columns = len(aligned1)
 
-        mismatches = sum(
-            a != b and a != "-" and b != "-"
-            for a, b in zip(aligned1, aligned2)
-        )
+            identity = (
+                (matches / total_columns) * 100
+                if total_columns else 0
+            )
 
-        gaps = sum(
-            a == "-" or b == "-"
-            for a, b in zip(aligned1, aligned2)
-        )
+            st.session_state.alignment_result = {
+                "seq1": clean1,
+                "seq2": clean2,
+                "aligned1": aligned1,
+                "aligned2": aligned2,
+                "score": score,
+                "matches": matches,
+                "mismatches": mismatches,
+                "gaps": gaps,
+                "identity": identity,
+                "execution_time": execution_time,
+                "algorithm": algorithm,
+                "name1": sequence_names[0],
+                "name2": sequence_names[1]
+            }
 
-        alignment_length = len(aligned1)
+            st.success("DNA alignment completed successfully!")
 
-        identity = (
-            matches / alignment_length * 100
-            if alignment_length else 0
-        )
-
-        st.session_state.alignment_result = {
-            "algorithm": algorithm,
-            "seq1": clean1,
-            "seq2": clean2,
-            "aligned1": aligned1,
-            "aligned2": aligned2,
-            "score": score,
-            "matches": matches,
-            "mismatches": mismatches,
-            "gaps": gaps,
-            "identity": identity,
-            "execution_time": execution_time,
-            "match_score": match_score,
-            "mismatch_penalty": mismatch_penalty,
-            "gap_penalty": gap_penalty
-        }
-
-        st.success("DNA alignment completed successfully!")
+        except Exception as error:
+            st.error(f"Alignment error: {error}")
 
 
-# =====================================================
-# GET ALIGNMENT RESULTS
-# =====================================================
+# --------------------------------------------------
+# DISPLAY RESULTS
+# --------------------------------------------------
 
 result = st.session_state.alignment_result
 
-
-# =====================================================
-# CHART DATA
-# =====================================================
-
-def create_alignment_dataframe(result):
-
-    rows = []
-
-    for position, (a, b) in enumerate(
-        zip(result["aligned1"], result["aligned2"]),
-        start=1
-    ):
-
-        if a == "-" or b == "-":
-            kind = "Gap"
-
-        elif a == b:
-            kind = "Match"
-
-        else:
-            kind = "Mismatch"
-
-        rows.append({
-            "Position": position,
-            "Sequence 1": a,
-            "Sequence 2": b,
-            "Type": kind
-        })
-
-    return pd.DataFrame(rows)
-
-
-COLORS = {
-    "Match": "#20c65a",
-    "Mismatch": "#f0b900",
-    "Gap": "#ef4444"
-}
-
-
-# =====================================================
-# ALIGNMENT COMPOSITION GRAPH
-# =====================================================
-
-def composition_chart(df):
-
-    counts = df["Type"].value_counts()
-
-    labels = ["Matches", "Mismatches", "Gaps"]
-
-    values = [
-        int(counts.get("Match", 0)),
-        int(counts.get("Mismatch", 0)),
-        int(counts.get("Gap", 0))
-    ]
-
-    colors = [
-        COLORS["Match"],
-        COLORS["Mismatch"],
-        COLORS["Gap"]
-    ]
-
-    total = max(sum(values), 1)
-
-    fig = go.Figure()
-
-    for label, value, color in zip(labels, values, colors):
-
-        fig.add_trace(go.Bar(
-            x=[value],
-            y=["Alignment"],
-            name=label,
-            orientation="h",
-            marker_color=color,
-            text=[f"{value} ({value / total * 100:.1f}%)"],
-            textposition="inside"
-        ))
-
-    fig.update_layout(
-        barmode="stack",
-        height=120,
-        paper_bgcolor="#111827",
-        plot_bgcolor="#111827",
-        font_color="white",
-        margin=dict(l=5, r=5, t=5, b=5),
-        showlegend=False,
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False)
-    )
-
-    return fig
-
-
-# =====================================================
-# SEQUENCE COMPOSITION GRAPH
-# =====================================================
-
-def sequence_chart(result):
-
-    bases = ["A", "T", "C", "G"]
-
-    seq1_counts = [
-        result["seq1"].count(base) for base in bases
-    ]
-
-    seq2_counts = [
-        result["seq2"].count(base) for base in bases
-    ]
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Bar(
-        x=bases,
-        y=seq1_counts,
-        name="Sequence 1",
-        marker_color="#11b8d4"
-    ))
-
-    fig.add_trace(go.Bar(
-        x=bases,
-        y=seq2_counts,
-        name="Sequence 2",
-        marker_color="#a855f7"
-    ))
-
-    fig.update_layout(
-        barmode="group",
-        height=280,
-        paper_bgcolor="#111827",
-        plot_bgcolor="#111827",
-        font_color="white",
-        margin=dict(l=10, r=10, t=30, b=20),
-        legend=dict(orientation="h", y=-0.2),
-        yaxis=dict(gridcolor="#29384e")
-    )
-
-    return fig
-
-
-# =====================================================
-# SIMILARITY PROFILE GRAPH
-# =====================================================
-
-def similarity_chart(df):
-
-    y_map = {
-        "Match": 1,
-        "Mismatch": 0,
-        "Gap": -1
-    }
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=df["Position"],
-        y=df["Type"].map(y_map),
-        mode="lines",
-        name="Similarity Trend",
-        line=dict(color="#17b8d1", width=1)
-    ))
-
-    for kind in ["Match", "Mismatch", "Gap"]:
-
-        subset = df[df["Type"] == kind]
-
-        fig.add_trace(go.Scatter(
-            x=subset["Position"],
-            y=subset["Type"].map(y_map),
-            mode="markers",
-            name=kind,
-            marker=dict(
-                color=COLORS[kind],
-                size=8
-            ),
-            customdata=subset[
-                ["Sequence 1", "Sequence 2"]
-            ],
-            hovertemplate=(
-                "Position: %{x}<br>"
-                "Sequence 1: %{customdata[0]}<br>"
-                "Sequence 2: %{customdata[1]}<br>"
-                + kind +
-                "<extra></extra>"
-            )
-        ))
-
-    fig.update_layout(
-        height=260,
-        paper_bgcolor="#111827",
-        plot_bgcolor="#111827",
-        font_color="white",
-        margin=dict(l=10, r=10, t=35, b=10),
-        xaxis=dict(
-            title="Alignment Position",
-            gridcolor="#29384e"
-        ),
-        yaxis=dict(
-            tickvals=[-1, 0, 1],
-            ticktext=["Gap", "Mismatch", "Match"],
-            gridcolor="#29384e"
-        ),
-        legend=dict(orientation="h", y=-0.25)
-    )
-
-    return fig
-
-
-# =====================================================
-# ALIGNMENT REGIONS GRAPH
-# =====================================================
-
-def region_chart(df):
-
-    fig = go.Figure()
-
-    for kind in ["Match", "Mismatch", "Gap"]:
-
-        subset = df[df["Type"] == kind]
-
-        fig.add_trace(go.Bar(
-            x=subset["Position"],
-            y=[1] * len(subset),
-            name=kind,
-            marker_color=COLORS[kind],
-            width=1
-        ))
-
-    fig.update_layout(
-        barmode="stack",
-        height=120,
-        paper_bgcolor="#111827",
-        plot_bgcolor="#111827",
-        font_color="white",
-        margin=dict(l=10, r=10, t=30, b=20),
-        showlegend=True,
-        yaxis=dict(visible=False),
-        xaxis=dict(
-            title="Alignment Position",
-            gridcolor="#29384e"
-        )
-    )
-
-    return fig
-
-
-# =====================================================
-# RESULTS AND VISUALIZATION DASHBOARD
-# =====================================================
-
-if result:
-
-    df = create_alignment_dataframe(result)
+if result is not None:
 
     st.divider()
+    st.header("Alignment Results")
 
-    st.subheader("Alignment Results")
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
 
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-
-    c1.metric("Alignment Score", result["score"])
-    c2.metric("Matches", result["matches"])
-    c3.metric("Mismatches", result["mismatches"])
-    c4.metric("Gap Columns", result["gaps"])
-    c5.metric("Identity", f'{result["identity"]:.2f}%')
-    c6.metric("Execution Time", f'{result["execution_time"]:.4f} ms')
-
-    st.divider()
+    m1.metric("Alignment Score", result["score"])
+    m2.metric("Matches", result["matches"])
+    m3.metric("Mismatches", result["mismatches"])
+    m4.metric("Gap Columns", result["gaps"])
+    m5.metric("Identity", f'{result["identity"]:.2f}%')
+    m6.metric("Execution Time", f'{result["execution_time"]:.4f} ms')
 
     st.subheader("Alignment Visualization")
 
-    # All graphs appear automatically here.
+    aligned1 = result["aligned1"]
+    aligned2 = result["aligned2"]
 
-    col1, col2 = st.columns(2)
+    # Alignment composition chart
 
-    with col1:
+    composition = pd.DataFrame({
+        "Type": ["Matches", "Mismatches", "Gaps"],
+        "Count": [
+            result["matches"],
+            result["mismatches"],
+            result["gaps"]
+        ]
+    })
 
-        st.markdown(
-            '<div class="panel"><h4>Alignment Composition</h4>'
-            '<p style="color:#94a3b8;">Character Distribution '
-            'by Alignment Type</p></div>',
-            unsafe_allow_html=True
-        )
-
-        st.plotly_chart(
-            composition_chart(df),
-            use_container_width=True,
-            config={"displayModeBar": False}
-        )
-
-        m1, m2, m3 = st.columns(3)
-
-        m1.metric("Matches", result["matches"])
-        m2.metric("Mismatches", result["mismatches"])
-        m3.metric("Gaps", result["gaps"])
-
-    with col2:
-
-        st.markdown(
-            '<div class="panel"><h4>Sequence Composition</h4></div>',
-            unsafe_allow_html=True
-        )
-
-        st.plotly_chart(
-            sequence_chart(result),
-            use_container_width=True,
-            config={"displayModeBar": False}
-        )
-
-    st.markdown(
-        '<div class="panel"><h4>Similarity Profile</h4></div>',
-        unsafe_allow_html=True
+    fig1 = px.bar(
+        composition,
+        x="Count",
+        y="Type",
+        orientation="h",
+        color="Type",
+        title="Alignment Composition",
+        text="Count",
+        color_discrete_map={
+            "Matches": "#20c55e",
+            "Mismatches": "#ef4444",
+            "Gaps": "#eab308"
+        }
     )
 
-    st.plotly_chart(
-        similarity_chart(df),
-        use_container_width=True,
-        config={"displayModeBar": False}
+    fig1.update_layout(
+        paper_bgcolor="#111827",
+        plot_bgcolor="#111827",
+        font_color="white"
     )
 
-    st.markdown(
-        '<div class="panel"><h4>Alignment Regions</h4></div>',
-        unsafe_allow_html=True
+    # Sequence composition chart
+
+    stats1 = get_dna_statistics(result["seq1"])
+    stats2 = get_dna_statistics(result["seq2"])
+
+    bases = ["A", "T", "C", "G"]
+
+    composition_data = pd.DataFrame({
+        "Base": bases,
+        "Sequence 1": [stats1["counts"][b] for b in bases],
+        "Sequence 2": [stats2["counts"][b] for b in bases]
+    })
+
+    fig2 = go.Figure()
+
+    fig2.add_trace(go.Bar(
+        x=bases,
+        y=composition_data["Sequence 1"],
+        name="Sequence 1"
+    ))
+
+    fig2.add_trace(go.Bar(
+        x=bases,
+        y=composition_data["Sequence 2"],
+        name="Sequence 2"
+    ))
+
+    fig2.update_layout(
+        title="Sequence Composition",
+        barmode="group",
+        paper_bgcolor="#111827",
+        plot_bgcolor="#111827",
+        font_color="white"
     )
 
-    st.plotly_chart(
-        region_chart(df),
-        use_container_width=True,
-        config={"displayModeBar": False}
+    # Similarity profile
+
+    positions = list(range(1, len(aligned1) + 1))
+
+    similarity = [
+        1 if a == b and a != "-" else 0
+        for a, b in zip(aligned1, aligned2)
+    ]
+
+    fig3 = go.Figure()
+
+    fig3.add_trace(go.Scatter(
+        x=positions,
+        y=similarity,
+        mode="lines+markers",
+        name="Similarity",
+        line=dict(color="#06b6d4")
+    ))
+
+    fig3.update_layout(
+        title="Similarity Profile",
+        xaxis_title="Alignment Position",
+        yaxis=dict(
+            tickvals=[0, 1],
+            ticktext=["Mismatch / Gap", "Match"]
+        ),
+        paper_bgcolor="#111827",
+        plot_bgcolor="#111827",
+        font_color="white"
     )
 
-    # =================================================
-    # EXTRA VISUALIZATION VIEWS
-    # =================================================
+    # Alignment regions
+
+    region_values = []
+
+    for a, b in zip(aligned1, aligned2):
+        if a == "-" or b == "-":
+            region_values.append("Gap")
+        elif a == b:
+            region_values.append("Match")
+        else:
+            region_values.append("Mismatch")
+
+    region_df = pd.DataFrame({
+        "Position": positions,
+        "Region": region_values,
+        "Value": [1] * len(positions)
+    })
+
+    fig4 = px.bar(
+        region_df,
+        x="Position",
+        y="Value",
+        color="Region",
+        title="Alignment Regions",
+        color_discrete_map={
+            "Match": "#20c55e",
+            "Mismatch": "#ef4444",
+            "Gap": "#eab308"
+        }
+    )
+
+    fig4.update_layout(
+        paper_bgcolor="#111827",
+        plot_bgcolor="#111827",
+        font_color="white",
+        showlegend=True
+    )
+
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        st.plotly_chart(fig1, use_container_width=True)
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with chart_col2:
+        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig4, use_container_width=True)
+
+    # Alignment views
 
     st.divider()
+    st.header("Additional Alignment Views")
 
-    st.subheader("Additional Alignment Views")
-
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3 = st.tabs([
         "Block View",
         "Linear View",
-        "Detailed Analysis",
-        "Compact View",
-        "Interactive View"
+        "Detailed Analysis"
     ])
 
     with tab1:
+        st.markdown("**Colour-coded DNA alignment**")
 
-        st.write("Colour-coded DNA alignment")
+        colored1 = []
+        colored2 = []
 
-        for start in range(0, len(df), 60):
+        for a, b in zip(aligned1, aligned2):
+            if a == "-" or b == "-":
+                color = "#eab308"
+            elif a == b:
+                color = "#20c55e"
+            else:
+                color = "#ef4444"
 
-            part = df.iloc[start:start + 60]
+            colored1.append(
+                f'<span style="color:{color};font-weight:bold">{a}</span>'
+            )
 
-            line1 = ""
-            line2 = ""
-
-            for _, row in part.iterrows():
-
-                color = COLORS[row["Type"]]
-
-                line1 += (
-                    f'<span style="color:{color};font-weight:bold;">'
-                    f'{html.escape(row["Sequence 1"])}</span>'
-                )
-
-                line2 += (
-                    f'<span style="color:{color};font-weight:bold;">'
-                    f'{html.escape(row["Sequence 2"])}</span>'
-                )
-
-            st.markdown(
-                f"""
-                <div style="background:#111827;padding:12px;
-                border-radius:8px;overflow-x:auto;
-                font-family:monospace;font-size:17px;">
-                Sequence 1: {line1}<br>
-                Sequence 2: {line2}
-                </div>
-                """,
-                unsafe_allow_html=True
+            colored2.append(
+                f'<span style="color:{color};font-weight:bold">{b}</span>'
             )
 
         st.markdown(
-            "🟢 Match &nbsp;&nbsp; 🔴 Mismatch &nbsp;&nbsp; 🟡 Gap"
+            f"""
+            <div style="background:#172236;padding:18px;border-radius:10px;
+            font-family:monospace;font-size:18px;overflow-x:auto;">
+            Sequence 1: {"".join(colored1)}<br>
+            Sequence 2: {"".join(colored2)}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.caption(
+            "Green = Match | Red = Mismatch | Yellow = Gap"
         )
 
     with tab2:
-
-        st.write("Linear Alignment")
-
         st.code(
-            "Sequence 1: " + result["aligned1"] +
-            "\nSequence 2: " + result["aligned2"]
-        )
-
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True
+            f"Sequence 1: {aligned1}\n"
+            f"Sequence 2: {aligned2}",
+            language="text"
         )
 
     with tab3:
+        st.write("**Algorithm:**", result["algorithm"])
+        st.write("**Alignment score:**", result["score"])
+        st.write("**Matches:**", result["matches"])
+        st.write("**Mismatches:**", result["mismatches"])
+        st.write("**Gaps:**", result["gaps"])
+        st.write("**Sequence identity:**", f'{result["identity"]:.2f}%')
 
-        st.write("Algorithm:", result["algorithm"])
-
-        st.write("Original Sequence 1:", result["seq1"])
-        st.write("Original Sequence 2:", result["seq2"])
-
-        st.write("Aligned Sequence 1:", result["aligned1"])
-        st.write("Aligned Sequence 2:", result["aligned2"])
-
-        st.json({
-            "Match Score": result["match_score"],
-            "Mismatch Penalty": result["mismatch_penalty"],
-            "Gap Penalty": result["gap_penalty"],
-            "Alignment Score": result["score"],
-            "Matches": result["matches"],
-            "Mismatches": result["mismatches"],
-            "Gaps": result["gaps"],
-            "Identity": result["identity"]
-        })
-
-    with tab4:
-
-        st.metric("Alignment Score", result["score"])
-        st.metric("Sequence Identity", f'{result["identity"]:.2f}%')
-
-        st.write("Algorithm:", result["algorithm"])
-        st.write("Alignment Length:", len(result["aligned1"]))
-
-    with tab5:
-
-        position = st.slider(
-            "Explore DNA alignment position",
-            min_value=1,
-            max_value=max(len(df), 1),
-            value=1
-        )
-
-        selected = df.iloc[position - 1]
-
-        c1, c2 = st.columns(2)
-
-        c1.metric("Sequence 1", selected["Sequence 1"])
-        c2.metric("Sequence 2", selected["Sequence 2"])
-
-        st.info(
-            f'Position {position}: {selected["Type"]}'
-        )
-
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-
-# =====================================================
-# DNA STATISTICS
-# =====================================================
-
-if result:
+    # DNA statistics
 
     st.divider()
+    st.header("DNA Statistics")
 
-    with st.expander("DNA Sequence Statistics"):
+    s1, s2 = st.columns(2)
 
-        stats1 = get_dna_statistics(result["seq1"])
-        stats2 = get_dna_statistics(result["seq2"])
+    with s1:
+        st.subheader("Sequence 1")
+        st.write("Length:", stats1["length"])
+        st.write("Nucleotide counts:", stats1["counts"])
+        st.write("GC content:", f'{stats1["gc_content"]}%')
 
-        c1, c2 = st.columns(2)
+    with s2:
+        st.subheader("Sequence 2")
+        st.write("Length:", stats2["length"])
+        st.write("Nucleotide counts:", stats2["counts"])
+        st.write("GC content:", f'{stats2["gc_content"]}%')
 
-        with c1:
-
-            st.subheader("Sequence 1")
-
-            st.write("Length:", stats1["length"])
-            st.write("GC Content:", stats1["gc_content"], "%")
-            st.json(stats1["counts"])
-
-        with c2:
-
-            st.subheader("Sequence 2")
-
-            st.write("Length:", stats2["length"])
-            st.write("GC Content:", stats2["gc_content"], "%")
-            st.json(stats2["counts"])
-
-
-# =====================================================
-# DOWNLOAD ALIGNMENT REPORT
-# =====================================================
-
-if result:
+    # Download report
 
     report = f"""
-GENEWEAVER - DNA ALIGNMENT REPORT
-=================================
+GENEWEAVER DNA ALIGNMENT REPORT
+Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 Algorithm: {result["algorithm"]}
 
-Original Sequence 1: {result["seq1"]}
-Original Sequence 2: {result["seq2"]}
+Original Sequence 1:
+{result["seq1"]}
 
-Aligned Sequence 1: {result["aligned1"]}
-Aligned Sequence 2: {result["aligned2"]}
+Original Sequence 2:
+{result["seq2"]}
 
-Scoring Configuration:
-Match Score: {result["match_score"]}
-Mismatch Penalty: {result["mismatch_penalty"]}
-Gap Penalty: {result["gap_penalty"]}
+Aligned Sequence 1:
+{aligned1}
 
-Alignment Results:
+Aligned Sequence 2:
+{aligned2}
+
 Alignment Score: {result["score"]}
 Matches: {result["matches"]}
 Mismatches: {result["mismatches"]}
-Gap Columns: {result["gaps"]}
-Sequence Identity: {result["identity"]:.2f}%
+Gaps: {result["gaps"]}
+Identity: {result["identity"]:.2f}%
 Execution Time: {result["execution_time"]:.4f} ms
 
-Generated by GeneWeaver
-"""
+Sequence 1 Statistics:
+{stats1}
 
-    st.divider()
+Sequence 2 Statistics:
+{stats2}
+"""
 
     st.download_button(
         "Download Alignment Report",
-        report,
+        data=report,
         file_name="GeneWeaver_Alignment_Report.txt",
         mime="text/plain"
     )
 
 
-# =====================================================
-# GENEWEAVER CHATBOT
-# =====================================================
+
+# --------------------------------------------------
+# GENEWEAVER CHAT ASSISTANT
+# --------------------------------------------------
+
+st.divider()
+st.header("🤖 GeneWeaver AI Chat Assistant")
+
+st.write("Ask questions about DNA, FASTA, alignment algorithms and your alignment results.")
+
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = []
+
+def get_chat_answer(question):
+    q = question.lower()
+
+    if "needleman" in q or "global alignment" in q:
+        return "Needleman-Wunsch performs global alignment of two complete DNA sequences."
+
+    elif "smith" in q or "local alignment" in q:
+        return "Smith-Waterman identifies the best local matching region between DNA sequences."
+
+    elif "gc content" in q:
+        return "GC content is the percentage of G and C bases in a DNA sequence."
+
+    elif "fasta" in q:
+        return "FASTA is a text format for storing DNA sequences. Headers begin with >."
+
+    elif "gpu" in q or "opencl" in q:
+        return "GeneWeaver has experimental OpenCL support for GPU-based DNA alignment."
+
+    elif "crisp" in q:
+        return "CRISPR is a gene-editing technology. GeneWeaver focuses on DNA sequence comparison."
+
+    elif "alignment" in q or "dna" in q:
+        return "DNA alignment compares sequences to identify matches, mismatches and gaps."
+
+    else:
+        return "Please ask about DNA, FASTA, GC content, Needleman-Wunsch, Smith-Waterman or CRISPR."
+
+
+# Show previous conversation
+for msg in st.session_state.chat_messages:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+
+
+# One input and one send button
+with st.form("geneweaver_chat", clear_on_submit=True):
+
+    question = st.text_area(
+        "Enter your question",
+        placeholder="Example: What is DNA alignment?",
+        height=80,
+        key="chat_message_box"
+    )
+
+    send = st.form_submit_button("Send Message")
+
+    if send:
+        if question.strip():
+            st.session_state.chat_messages.append({
+                "role": "user",
+                "content": question.strip()
+            })
+
+            answer = get_chat_answer(question)
+
+            st.session_state.chat_messages.append({
+                "role": "assistant",
+                "content": answer
+            })
+
+            st.rerun()
+        else:
+            st.warning("Please enter a question.")
+
+
+
+# --------------------------------------------------
+# FOOTER
+# --------------------------------------------------
 
 st.divider()
 
-st.subheader("🤖 GeneWeaver AI Chat Assistant")
-
 st.caption(
+    "GeneWeaver | Python DNA Sequence Alignment Project "
+    "| Experimental OpenCL support"
+)
+
+# -------- GENEWEAVER CHAT ASSISTANT --------
+
+st.divider()
+st.header("🤖 GeneWeaver AI Chat Assistant")
+
+st.write(
     "Ask questions about DNA, FASTA, alignment algorithms "
     "and your alignment results."
 )
 
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = []
 
-def offline_answer(question):
+if "chat_question" not in st.session_state:
+    st.session_state.chat_question = ""
 
+# Display previous messages
+for msg in st.session_state.chat_messages:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+
+
+def get_chat_answer(question):
     q = question.lower()
 
-    if "needleman" in q or "global" in q:
+    if "dna" in q or "alignment" in q:
+        return "DNA alignment compares two DNA sequences to identify matches, mismatches and gaps."
 
-        return (
-            "Needleman-Wunsch is a global alignment algorithm. "
-            "It compares complete DNA sequences using match, "
-            "mismatch and gap scores."
-        )
+    elif "fasta" in q:
+        return "FASTA is a text format used to store DNA or protein sequences. Headers start with >."
 
-    if "smith" in q or "local" in q:
+    elif "gc content" in q:
+        return "GC content is the percentage of G and C bases in a DNA sequence."
 
-        return (
-            "Smith-Waterman is a local alignment algorithm. "
-            "It finds the best matching region between two sequences."
-        )
+    elif "needleman" in q:
+        return "Needleman-Wunsch performs global alignment of two complete sequences."
 
-    if "fasta" in q:
+    elif "smith" in q:
+        return "Smith-Waterman identifies the best local matching region between sequences."
 
-        return (
-            "FASTA is a text format for biological sequences. "
-            "Each sequence starts with a header beginning with >."
-        )
+    elif "crisp" in q:
+        return "CRISPR is a gene-editing technology. GeneWeaver focuses on DNA sequence comparison."
 
-    if "gc" in q:
-
-        return (
-            "GC content measures the percentage of G and C bases. "
-            "Formula: (G + C) / Total Length × 100."
-        )
-
-    if "identity" in q:
-
-        return (
-            "Sequence identity is the percentage of matching "
-            "alignment positions."
-        )
-
-    if "crisp" in q:
-
-        return (
-            "CRISPR is a genome-editing technology. GeneWeaver "
-            "currently provides DNA sequence validation and "
-            "pairwise alignment, not clinical editing predictions."
-        )
-
-    if "score" in q or "result" in q:
-
-        if st.session_state.alignment_result:
-
-            r = st.session_state.alignment_result
-
-            return (
-                f"Your current alignment score is {r['score']}. "
-                f"Matches: {r['matches']}, "
-                f"Mismatches: {r['mismatches']}, "
-                f"Gaps: {r['gaps']}, "
-                f"Identity: {r['identity']:.2f}%."
-            )
-
-        return "Please run a DNA alignment first."
-
-    if "match" in q or "mismatch" in q or "gap" in q:
-
-        return (
-            "A match means two bases are identical. "
-            "A mismatch means they differ. "
-            "A gap is represented by the '-' character."
-        )
-
-    return (
-        "Hello! I am GeneWeaver Assistant. I can explain "
-        "DNA alignment, FASTA files, Needleman-Wunsch, "
-        "Smith-Waterman, GC content, matches, mismatches and gaps."
-    )
+    else:
+        return "I can answer questions about DNA, FASTA, GC content, Needleman-Wunsch and Smith-Waterman."
 
 
-def get_ai_answer(question):
-
-    api_key = os.getenv("OPENAI_API_KEY")
-
-    if not api_key:
-        return offline_answer(question)
-
-    try:
-
-        from openai import OpenAI
-
-        client = OpenAI(api_key=api_key)
-
-        response = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are GeneWeaver Assistant. "
-                        "Explain DNA alignment, biology and algorithms "
-                        "in simple language. Do not provide medical "
-                        "or clinical advice."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": question
-                }
-            ]
-        )
-
-        return response.choices[0].message.content
-
-    except Exception:
-
-        return (
-            "The AI service is currently unavailable. "
-            + offline_answer(question)
-        )
-
-
-for message in st.session_state.chat_history:
-
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-
-question = st.chat_input(
-    "Ask GeneWeaver something..."
+# Normal text input, outside a form
+question = st.text_input(
+    "Type your question here",
+    key="geneweaver_question_input",
+    placeholder="Example: What is DNA alignment?"
 )
 
-if question:
+if st.button("Send Message", key="geneweaver_send_button"):
 
-    st.session_state.chat_history.append({
-        "role": "user",
-        "content": question
-    })
+    if question.strip():
+        st.session_state.chat_messages.append({
+            "role": "user",
+            "content": question.strip()
+        })
 
-    answer = get_ai_answer(question)
+        answer = get_chat_answer(question)
 
-    st.session_state.chat_history.append({
-        "role": "assistant",
-        "content": answer
-    })
+        st.session_state.chat_messages.append({
+            "role": "assistant",
+            "content": answer
+        })
 
-    st.rerun()
-
-
-if st.button("Clear Chat"):
-    st.session_state.chat_history = []
-    st.rerun()
-
-
-# =====================================================
-# FOOTER
-# =====================================================
-
-st.divider()
-
-st.caption(
-    "GeneWeaver | DNA Sequence Alignment | "
-    "Experimental OpenCL GPU Support"
-)
+        st.rerun()
+    else:
+        st.warning("Please type a question.")
