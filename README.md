@@ -1,24 +1,31 @@
-
 # 🧬 GeneWeaver
 ### GPU-Accelerated CRISPR Alignment Engine
 
-GeneWeaver is a Python-based DNA sequence alignment project that implements global and local sequence alignment algorithms and explores GPU computing using OpenCL.
+GeneWeaver is a Python-based DNA sequence alignment project that implements global and local DNA sequence alignment algorithms and explores GPU computing using OpenCL.
 
-The project aims to compare DNA sequences, identify matching regions, calculate alignment scores, and study CPU and GPU execution performance.
+The project compares DNA sequences, identifies matching regions, calculates alignment scores, analyzes nucleotide composition, and visualizes CPU and experimental GPU performance through an interactive Streamlit dashboard.
 
 ## 🚀 Features
 
 - DNA sequence validation and normalization.
-- Global alignment using Needleman-Wunsch algorithm.
-- Local alignment using Smith-Waterman algorithm.
+- Global alignment using the Needleman-Wunsch algorithm.
+- Local alignment using the Smith-Waterman algorithm.
 - Custom match, mismatch, and gap scoring.
-- Interactive Streamlit dashboard.
-- Color-coded DNA alignment results.
+- FASTA file upload and sequence parsing.
 - DNA nucleotide statistics (A, T, C, G).
 - GC-content calculation.
+- Alignment score, matches, mismatches, and gaps.
+- Sequence identity and execution-time calculation.
+- Color-coded DNA alignment results.
+- Interactive Streamlit dashboard.
+- Comparative performance charts.
+- Alignment report generation and download.
 - CPU performance benchmarking.
-- OpenCL GPU-based alignment prototype.
+- Experimental OpenCL GPU alignment.
 - Unit testing using Python unittest.
+- GeneWeaver chatbot interface for project-related questions.
+
+**Note:** Generative AI API integration for dynamic chatbot responses is a planned enhancement and is not yet confirmed as operational.
 
 ## 🛠️ Technologies Used
 
@@ -26,30 +33,72 @@ The project aims to compare DNA sequences, identify matching regions, calculate 
 |---|---|
 | Python | Core development |
 | Streamlit | Interactive dashboard |
-| OpenCL | GPU computing |
+| OpenCL | Experimental GPU computing |
 | PyOpenCL | Python interface for OpenCL |
 | NumPy | Numerical operations |
+| Pandas | Data handling |
 | Unittest | Software testing |
-| Git & GitHub | Version control |
+| Git and GitHub | Version control |
 
 ## 🧬 Alignment Algorithms
 
-### 1. Needleman-Wunsch
+### 1. Needleman-Wunsch Algorithm
+
 Performs global DNA sequence alignment by comparing two complete sequences using dynamic programming.
 
-### 2. Smith-Waterman
+### 2. Smith-Waterman Algorithm
+
 Performs local DNA sequence alignment to identify the best matching region between two DNA sequences.
+
+Both algorithms support configurable match, mismatch, and gap scoring values.
+
+## 📂 FASTA File Support
+
+GeneWeaver supports uploading DNA sequence files in FASTA format.
+
+- Upload `.fasta`, `.fa`, or `.txt` files.
+- Read and extract DNA sequences.
+- Display sequence information.
+- Compare the first two sequences for alignment.
+
+## 📊 DNA Sequence Analysis
+
+The project provides:
+
+- Total sequence length.
+- Adenine (A) count.
+- Thymine (T) count.
+- Cytosine (C) count.
+- Guanine (G) count.
+- GC-content percentage.
+- Alignment score and comparison statistics.
+
+## 📈 Interactive Dashboard
+
+The Streamlit dashboard provides:
+
+- Manual DNA sequence input.
+- FASTA file upload.
+- Global and local alignment selection.
+- Configurable scoring parameters.
+- Color-coded alignment visualization.
+- DNA statistics.
+- Comparative charts.
+- Alignment report download.
+- Chatbot interface.
 
 ## ⚡ GPU Implementation
 
-GeneWeaver includes an OpenCL-based GPU prototype for Needleman-Wunsch alignment.
+GeneWeaver includes an experimental OpenCL-based GPU prototype for Needleman-Wunsch alignment.
 
 - Uses Intel integrated graphics through OpenCL.
 - Calculates dynamic programming matrix cells using anti-diagonal wavefront processing.
 - Performs traceback on the CPU.
 - Compares GPU and CPU alignment scores.
 
-**Hardware note:** GPU execution was tested using Intel Iris Xe integrated graphics. NVIDIA CUDA is not required for this implementation.
+**Hardware note:** GPU execution was tested using Intel Iris Xe integrated graphics. NVIDIA CUDA is not required.
+
+GPU execution may be slower for smaller sequences because of OpenCL initialization and kernel-launch overhead.
 
 ## 📊 Performance Benchmarking
 
@@ -61,7 +110,20 @@ Example results from an earlier test run:
 | 40 | 0.5745 | 11.5377 |
 | 80 | 1.9964 | 16.5995 |
 
-GPU execution was slower for these small test inputs because of OpenCL setup and kernel-launch overhead. Further optimization is required.
+These results show that the experimental GPU implementation was slower for these small test inputs. Further optimization is required.
+
+## 🤖 Chatbot and Future Generative AI Integration
+
+GeneWeaver includes a chatbot interface designed to help users understand DNA alignment concepts and project features.
+
+Planned improvements include:
+
+- OpenAI API integration.
+- Dynamic AI-generated responses.
+- Better explanations of DNA alignment algorithms.
+- Context-aware answers about GeneWeaver.
+
+Generative AI functionality will be added and tested separately.
 
 ## 📁 Project Structure
 
@@ -75,72 +137,71 @@ GeneWeaver/
 ├── benchmark.py
 ├── benchmark_gpu.py
 ├── test_alignment.py
+├── sample_sequences.fasta
 ├── README.md
 └── .gitignore
 ```
 
 ## ⚙️ Installation
 
-Clone the repository:
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/aambikawage-web/GeneWeaver.git
 cd GeneWeaver
 ```
 
-Create a virtual environment:
+### 2. Create a virtual environment
 
 ```bash
 python -m venv venv
 ```
 
-Activate it on Windows:
+### 3. Activate the environment on Windows
 
 ```powershell
 .\venv\Scripts\Activate.ps1
 ```
 
-Install the dashboard dependency:
+### 4. Install dependencies
 
 ```bash
-python -m pip install streamlit
+python -m pip install streamlit numpy pandas
 ```
 
-For GPU execution, install an OpenCL runtime appropriate for your hardware and PyOpenCL:
+For experimental GPU execution, install an appropriate OpenCL runtime for your hardware and PyOpenCL:
 
 ```bash
-python -m pip install pyopencl numpy
+python -m pip install pyopencl
 ```
 
 ## ▶️ Run the Project
 
-Run the command-line engine:
-
-```bash
-python main.py
-```
-
-Launch the Streamlit dashboard:
+### Launch the Streamlit dashboard
 
 ```bash
 python -m streamlit run app.py
 ```
 
-Run CPU benchmarks:
+### Run the command-line engine
+
+```bash
+python main.py
+```
+
+### Run CPU benchmarks
 
 ```bash
 python benchmark.py
 ```
 
-Run GPU benchmarks in an environment with a working OpenCL runtime:
+### Run GPU benchmarks
 
 ```bash
 python benchmark_gpu.py
 ```
 
-## 🧪 Testing
-
-Run the unit tests:
+### Run unit tests
 
 ```bash
 python -m unittest -v test_alignment.py
@@ -150,10 +211,12 @@ The current alignment test suite contains six tests covering global and local al
 
 ## 🔮 Future Enhancements
 
+- Complete OpenAI API integration for generative AI chatbot responses.
+- Improve chatbot knowledge of DNA and CRISPR concepts.
 - Optimize GPU kernel execution.
 - Reduce OpenCL setup overhead.
 - Explore GPU acceleration for Smith-Waterman.
-- Add larger DNA sequence benchmarking.
+- Support larger DNA sequence datasets.
 - Improve dashboard visualizations.
 - Add more validation and edge-case tests.
 - Explore CRISPR guide RNA matching and analysis.
@@ -162,7 +225,7 @@ The current alignment test suite contains six tests covering global and local al
 
 **Ambika Wage**
 
-GitHub: [aambikawage-web](https://github.com/aambikawage-web)
+GitHub: https://github.com/aambikawage-web
 
 ---
 
