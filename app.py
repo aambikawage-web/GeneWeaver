@@ -8,6 +8,7 @@ from datetime import datetime
 
 from alignment import needleman_wunsch, smith_waterman
 from validation import validate_dna_details, get_dna_statistics
+from auth import require_login
 
 
 # --------------------------------------------------
@@ -22,18 +23,21 @@ st.set_page_config(
 
 
 # --------------------------------------------------
-# CUSTOM CSS
+# DASHBOARD DESIGN
 # --------------------------------------------------
 
 st.markdown("""
 <style>
-.stApp {
-    background-color: #080d19;
-    color: #f1f5f9;
-}
 
-h1, h2, h3, h4, p, label {
-    color: #f1f5f9 !important;
+.stApp {
+    background:
+        radial-gradient(
+            circle at 90% 0%,
+            rgba(49, 46, 129, 0.15),
+            transparent 30%
+        ),
+        #080d19;
+    color: #f1f5f9;
 }
 
 .main .block-container {
@@ -42,65 +46,137 @@ h1, h2, h3, h4, p, label {
     max-width: 1450px;
 }
 
-div[data-testid="stMetric"] {
-    background: #172236;
-    border: 1px solid #34445e;
-    padding: 18px;
-    border-radius: 12px;
+h1, h2, h3, h4, p, label {
+    color: #f1f5f9 !important;
 }
 
-div[data-testid="stMetric"] label {
-    color: #dbeafe !important;
+section[data-testid="stSidebar"] {
+    background: linear-gradient(
+        180deg,
+        #101a30,
+        #111827
+    );
+    border-right: 1px solid #263957;
+}
+
+div[data-testid="stMetric"] {
+    background: linear-gradient(
+        135deg,
+        #172b48,
+        #172236
+    );
+    border: 1px solid #315078;
+    padding: 20px;
+    border-radius: 15px;
+    box-shadow: 0 5px 18px rgba(0,0,0,0.2);
+}
+
+div[data-testid="stMetricLabel"] {
+    color: #a5c4e8 !important;
 }
 
 div[data-testid="stMetricValue"] {
-    color: #ffffff !important;
+    color: #38d9f5 !important;
+    font-weight: 800;
 }
 
 .stTextInput input,
 .stTextArea textarea {
     background-color: #172236 !important;
     color: white !important;
-    border: 1px solid #52627a !important;
-}
-
-.stTextInput input::placeholder,
-.stTextArea textarea::placeholder {
-    color: #aab7ca !important;
+    border: 1px solid #405579 !important;
+    border-radius: 9px !important;
 }
 
 .stButton button,
 .stFormSubmitButton button {
-    background-color: #078bb5;
+    background: linear-gradient(
+        90deg,
+        #0891b2,
+        #4f46e5
+    );
     color: white;
-    border-radius: 8px;
+    border-radius: 9px;
     border: none;
-    font-weight: bold;
+    font-weight: 700;
+    transition: 0.2s;
 }
 
 .stButton button:hover,
 .stFormSubmitButton button:hover {
-    background-color: #06a6d3;
+    background: linear-gradient(
+        90deg,
+        #06b6d4,
+        #6366f1
+    );
     color: white;
+    border: none;
 }
 
-section[data-testid="stSidebar"] {
-    background-color: #111a2b;
+div[data-testid="stTabs"] button {
+    color: #cbd5e1;
+    font-weight: 600;
 }
 
-.chat-message {
-    background-color: #172236;
-    border: 1px solid #34445e;
-    border-radius: 10px;
-    padding: 12px 16px;
-    margin-bottom: 10px;
+div[data-testid="stExpander"] {
+    background-color: #142139;
+    border: 1px solid #334e75;
+    border-radius: 12px;
 }
 
 hr {
-    border-color: #34445e;
+    border-color: #334155;
 }
+
 </style>
 """, unsafe_allow_html=True)
+
+
+# --------------------------------------------------
+# USER AUTHENTICATION
+# --------------------------------------------------
+
+if not require_login():
+    st.stop()
+
+st.sidebar.markdown(
+    """
+    <div style="
+        text-align:center;
+        padding:15px 5px;
+    ">
+        <div style="font-size:38px;">🧬</div>
+        <h2 style="margin:0;color:#67e8f9;">
+            GeneWeaver
+        </h2>
+        <p style="color:#94a3b8;font-size:12px;">
+            DNA ANALYSIS PLATFORM
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+st.sidebar.divider()
+
+st.sidebar.success(
+    f"Welcome, {st.session_state.full_name}!"
+)
+
+if st.sidebar.button(
+    "🚪 Logout",
+    use_container_width=True
+):
+
+    st.session_state.logged_in = False
+
+    st.session_state.pop("full_name", None)
+    st.session_state.pop("username", None)
+
+    st.session_state.alignment_result = None
+    st.session_state.chat_messages = []
+
+    st.rerun()
 
 
 # --------------------------------------------------
@@ -128,6 +204,7 @@ if "chat_messages" not in st.session_state:
 # --------------------------------------------------
 
 def read_fasta(uploaded_file):
+
     content = uploaded_file.getvalue().decode("utf-8")
 
     records = []
@@ -135,22 +212,28 @@ def read_fasta(uploaded_file):
     current_sequence = []
 
     for line in content.splitlines():
+
         line = line.strip()
 
         if not line:
             continue
 
         if line.startswith(">"):
+
             if current_name is not None:
                 records.append((
                     current_name,
                     "".join(current_sequence)
                 ))
 
-            current_name = line[1:].strip() or "Unnamed sequence"
+            current_name = (
+                line[1:].strip() or "Unnamed sequence"
+            )
+
             current_sequence = []
 
         else:
+
             if current_name is None:
                 current_name = "Sequence 1"
 
@@ -169,7 +252,8 @@ def read_fasta(uploaded_file):
 # CHATBOT RESPONSE
 # --------------------------------------------------
 
-def chatbot_response(question):
+def get_chat_answer(question):
+
     q = question.lower().strip()
 
     if not q:
@@ -262,19 +346,40 @@ def chatbot_response(question):
 
 
 # --------------------------------------------------
-# HEADER
+# DASHBOARD HEADER
 # --------------------------------------------------
 
-st.markdown(
-    "<h1 style='font-size:45px;'>🧬 GeneWeaver</h1>",
-    unsafe_allow_html=True
-)
+st.markdown("""
+<div style="
+    background:linear-gradient(120deg,#122d50,#312e81);
+    padding:28px;
+    border-radius:18px;
+    border:1px solid #3b5b8a;
+    margin-bottom:22px;
+">
+    <h1 style="
+        font-size:38px;
+        margin:0;
+        color:white;
+    ">🧬 GeneWeaver</h1>
 
-st.markdown(
-    "## GPU-Accelerated CRISPR Alignment Engine"
-)
+    <p style="
+        font-size:20px;
+        font-weight:600;
+        color:#67e8f9;
+        margin:8px 0;
+    ">GPU-Accelerated CRISPR Alignment Engine</p>
 
-st.caption("DNA Sequence Comparison and Alignment Dashboard")
+    <p style="
+        color:#dbeafe;
+        margin:0;
+    ">Explore DNA sequences • Analyze alignment • Visualize results</p>
+</div>
+""", unsafe_allow_html=True)
+
+st.caption(
+    f"Welcome to your workspace, {st.session_state.full_name}!"
+)
 
 st.divider()
 
@@ -283,50 +388,65 @@ st.divider()
 # DNA INPUT
 # --------------------------------------------------
 
-st.header("DNA Sequence Input")
+st.header("🧬 DNA Sequence Input")
 
 input_method = st.radio(
-    "Input Method",
+    "Choose Input Method",
     ["Manual Input", "Upload FASTA File"],
     horizontal=True
 )
 
 seq1 = ""
 seq2 = ""
-sequence_names = ["Sequence 1", "Sequence 2"]
+
+sequence_names = [
+    "Sequence 1",
+    "Sequence 2"
+]
 
 if input_method == "Manual Input":
 
     col1, col2 = st.columns(2)
 
     with col1:
+
         seq1 = st.text_area(
             "First DNA Sequence",
             value="ATCGATCG",
-            height=110
+            height=110,
+            placeholder="Enter A, T, C and G bases"
         )
 
     with col2:
+
         seq2 = st.text_area(
             "Second DNA Sequence",
             value="ATCGTTCG",
-            height=110
+            height=110,
+            placeholder="Enter A, T, C and G bases"
         )
 
 else:
+
     uploaded_file = st.file_uploader(
         "Upload FASTA file",
         type=["fasta", "fa", "txt"]
     )
 
     if uploaded_file is not None:
+
         try:
+
             records = read_fasta(uploaded_file)
 
             if len(records) < 2:
-                st.error("Please upload a FASTA file containing at least two sequences.")
+
+                st.error(
+                    "Please upload a FASTA file containing at least two sequences."
+                )
 
             else:
+
                 sequence_names = [
                     records[0][0],
                     records[1][0]
@@ -355,7 +475,10 @@ else:
                 )
 
         except Exception as error:
-            st.error(f"Could not read FASTA file: {error}")
+
+            st.error(
+                f"Could not read FASTA file: {error}"
+            )
 
 
 # --------------------------------------------------
@@ -363,11 +486,13 @@ else:
 # --------------------------------------------------
 
 st.divider()
-st.header("Alignment Configuration")
+
+st.header("⚙️ Alignment Configuration")
 
 c1, c2, c3, c4 = st.columns(4)
 
 with c1:
+
     algorithm = st.selectbox(
         "Algorithm",
         [
@@ -377,6 +502,7 @@ with c1:
     )
 
 with c2:
+
     match_score = st.number_input(
         "Match Score",
         value=1,
@@ -384,6 +510,7 @@ with c2:
     )
 
 with c3:
+
     mismatch_penalty = st.number_input(
         "Mismatch Penalty",
         value=-1,
@@ -391,6 +518,7 @@ with c3:
     )
 
 with c4:
+
     gap_penalty = st.number_input(
         "Gap Penalty",
         value=-1,
@@ -399,25 +527,34 @@ with c4:
 
 
 # --------------------------------------------------
-# RUN ALIGNMENT
+# RUN DNA ALIGNMENT
 # --------------------------------------------------
 
-if st.button("Run DNA Alignment", type="primary"):
+if st.button(
+    "🚀 Run DNA Alignment",
+    type="primary",
+    use_container_width=True
+):
 
     valid1, clean1, message1 = validate_dna_details(seq1)
     valid2, clean2, message2 = validate_dna_details(seq2)
 
     if not valid1:
+
         st.error(f"First sequence: {message1}")
 
     elif not valid2:
+
         st.error(f"Second sequence: {message2}")
 
     else:
+
         try:
+
             start_time = time.perf_counter()
 
             if algorithm.startswith("Needleman"):
+
                 aligned1, aligned2, score = needleman_wunsch(
                     clean1,
                     clean2,
@@ -425,7 +562,9 @@ if st.button("Run DNA Alignment", type="primary"):
                     int(mismatch_penalty),
                     int(gap_penalty)
                 )
+
             else:
+
                 aligned1, aligned2, score = smith_waterman(
                     clean1,
                     clean2,
@@ -476,14 +615,19 @@ if st.button("Run DNA Alignment", type="primary"):
                 "name2": sequence_names[1]
             }
 
-            st.success("DNA alignment completed successfully!")
+            st.success(
+                "DNA alignment completed successfully!"
+            )
 
         except Exception as error:
-            st.error(f"Alignment error: {error}")
+
+            st.error(
+                f"Alignment error: {error}"
+            )
 
 
 # --------------------------------------------------
-# DISPLAY RESULTS
+# DISPLAY ALIGNMENT RESULTS
 # --------------------------------------------------
 
 result = st.session_state.alignment_result
@@ -491,26 +635,54 @@ result = st.session_state.alignment_result
 if result is not None:
 
     st.divider()
-    st.header("Alignment Results")
+
+    st.header("📊 Alignment Results")
 
     m1, m2, m3, m4, m5, m6 = st.columns(6)
 
-    m1.metric("Alignment Score", result["score"])
-    m2.metric("Matches", result["matches"])
-    m3.metric("Mismatches", result["mismatches"])
-    m4.metric("Gap Columns", result["gaps"])
-    m5.metric("Identity", f'{result["identity"]:.2f}%')
-    m6.metric("Execution Time", f'{result["execution_time"]:.4f} ms')
+    m1.metric(
+        "Alignment Score",
+        result["score"]
+    )
 
-    st.subheader("Alignment Visualization")
+    m2.metric(
+        "Matches",
+        result["matches"]
+    )
+
+    m3.metric(
+        "Mismatches",
+        result["mismatches"]
+    )
+
+    m4.metric(
+        "Gap Columns",
+        result["gaps"]
+    )
+
+    m5.metric(
+        "Identity",
+        f'{result["identity"]:.2f}%'
+    )
+
+    m6.metric(
+        "Execution Time",
+        f'{result["execution_time"]:.4f} ms'
+    )
 
     aligned1 = result["aligned1"]
     aligned2 = result["aligned2"]
 
-    # Alignment composition chart
+    st.subheader("Alignment Visualization")
+
+    # ALIGNMENT COMPOSITION
 
     composition = pd.DataFrame({
-        "Type": ["Matches", "Mismatches", "Gaps"],
+        "Type": [
+            "Matches",
+            "Mismatches",
+            "Gaps"
+        ],
         "Count": [
             result["matches"],
             result["mismatches"],
@@ -539,17 +711,26 @@ if result is not None:
         font_color="white"
     )
 
-    # Sequence composition chart
+    # DNA COMPOSITION
 
     stats1 = get_dna_statistics(result["seq1"])
     stats2 = get_dna_statistics(result["seq2"])
 
-    bases = ["A", "T", "C", "G"]
+    bases = [
+        "A",
+        "T",
+        "C",
+        "G"
+    ]
 
     composition_data = pd.DataFrame({
         "Base": bases,
-        "Sequence 1": [stats1["counts"][b] for b in bases],
-        "Sequence 2": [stats2["counts"][b] for b in bases]
+        "Sequence 1": [
+            stats1["counts"][b] for b in bases
+        ],
+        "Sequence 2": [
+            stats2["counts"][b] for b in bases
+        ]
     })
 
     fig2 = go.Figure()
@@ -567,16 +748,18 @@ if result is not None:
     ))
 
     fig2.update_layout(
-        title="Sequence Composition",
+        title="DNA Sequence Composition",
         barmode="group",
         paper_bgcolor="#111827",
         plot_bgcolor="#111827",
         font_color="white"
     )
 
-    # Similarity profile
+    # SIMILARITY PROFILE
 
-    positions = list(range(1, len(aligned1) + 1))
+    positions = list(
+        range(1, len(aligned1) + 1)
+    )
 
     similarity = [
         1 if a == b and a != "-" else 0
@@ -598,22 +781,28 @@ if result is not None:
         xaxis_title="Alignment Position",
         yaxis=dict(
             tickvals=[0, 1],
-            ticktext=["Mismatch / Gap", "Match"]
+            ticktext=[
+                "Mismatch / Gap",
+                "Match"
+            ]
         ),
         paper_bgcolor="#111827",
         plot_bgcolor="#111827",
         font_color="white"
     )
 
-    # Alignment regions
+    # ALIGNMENT REGIONS
 
     region_values = []
 
     for a, b in zip(aligned1, aligned2):
+
         if a == "-" or b == "-":
             region_values.append("Gap")
+
         elif a == b:
             region_values.append("Match")
+
         else:
             region_values.append("Mismatch")
 
@@ -639,24 +828,44 @@ if result is not None:
     fig4.update_layout(
         paper_bgcolor="#111827",
         plot_bgcolor="#111827",
-        font_color="white",
-        showlegend=True
+        font_color="white"
     )
+
+    # DISPLAY CHARTS
 
     chart_col1, chart_col2 = st.columns(2)
 
     with chart_col1:
-        st.plotly_chart(fig1, use_container_width=True)
-        st.plotly_chart(fig3, use_container_width=True)
+
+        st.plotly_chart(
+            fig1,
+            use_container_width=True
+        )
+
+        st.plotly_chart(
+            fig3,
+            use_container_width=True
+        )
 
     with chart_col2:
-        st.plotly_chart(fig2, use_container_width=True)
-        st.plotly_chart(fig4, use_container_width=True)
 
-    # Alignment views
+        st.plotly_chart(
+            fig2,
+            use_container_width=True
+        )
+
+        st.plotly_chart(
+            fig4,
+            use_container_width=True
+        )
+
+    # --------------------------------------------------
+    # ALIGNMENT VIEWS
+    # --------------------------------------------------
 
     st.divider()
-    st.header("Additional Alignment Views")
+
+    st.header("🔬 Additional Alignment Views")
 
     tab1, tab2, tab3 = st.tabs([
         "Block View",
@@ -665,16 +874,22 @@ if result is not None:
     ])
 
     with tab1:
-        st.markdown("**Colour-coded DNA alignment**")
+
+        st.markdown(
+            "**Colour-coded DNA alignment**"
+        )
 
         colored1 = []
         colored2 = []
 
         for a, b in zip(aligned1, aligned2):
+
             if a == "-" or b == "-":
                 color = "#eab308"
+
             elif a == b:
                 color = "#20c55e"
+
             else:
                 color = "#ef4444"
 
@@ -688,10 +903,17 @@ if result is not None:
 
         st.markdown(
             f"""
-            <div style="background:#172236;padding:18px;border-radius:10px;
-            font-family:monospace;font-size:18px;overflow-x:auto;">
-            Sequence 1: {"".join(colored1)}<br>
-            Sequence 2: {"".join(colored2)}
+            <div style="
+                background:#172236;
+                padding:20px;
+                border-radius:12px;
+                border:1px solid #334e75;
+                font-family:monospace;
+                font-size:18px;
+                overflow-x:auto;
+            ">
+                Sequence 1: {"".join(colored1)}<br>
+                Sequence 2: {"".join(colored2)}
             </div>
             """,
             unsafe_allow_html=True
@@ -702,6 +924,7 @@ if result is not None:
         )
 
     with tab2:
+
         st.code(
             f"Sequence 1: {aligned1}\n"
             f"Sequence 2: {aligned2}",
@@ -709,39 +932,102 @@ if result is not None:
         )
 
     with tab3:
-        st.write("**Algorithm:**", result["algorithm"])
-        st.write("**Alignment score:**", result["score"])
-        st.write("**Matches:**", result["matches"])
-        st.write("**Mismatches:**", result["mismatches"])
-        st.write("**Gaps:**", result["gaps"])
-        st.write("**Sequence identity:**", f'{result["identity"]:.2f}%')
 
-    # DNA statistics
+        st.write(
+            "**Algorithm:**",
+            result["algorithm"]
+        )
+
+        st.write(
+            "**Alignment score:**",
+            result["score"]
+        )
+
+        st.write(
+            "**Matches:**",
+            result["matches"]
+        )
+
+        st.write(
+            "**Mismatches:**",
+            result["mismatches"]
+        )
+
+        st.write(
+            "**Gaps:**",
+            result["gaps"]
+        )
+
+        st.write(
+            "**Sequence identity:**",
+            f'{result["identity"]:.2f}%'
+        )
+
+        st.write(
+            "**Execution time:**",
+            f'{result["execution_time"]:.4f} ms'
+        )
+
+    # --------------------------------------------------
+    # DNA STATISTICS
+    # --------------------------------------------------
 
     st.divider()
-    st.header("DNA Statistics")
+
+    st.header("🧪 DNA Statistics")
 
     s1, s2 = st.columns(2)
 
     with s1:
+
         st.subheader("Sequence 1")
-        st.write("Length:", stats1["length"])
-        st.write("Nucleotide counts:", stats1["counts"])
-        st.write("GC content:", f'{stats1["gc_content"]}%')
+
+        st.metric(
+            "Sequence Length",
+            stats1["length"]
+        )
+
+        st.write(
+            "Nucleotide Counts:",
+            stats1["counts"]
+        )
+
+        st.metric(
+            "GC Content",
+            f'{stats1["gc_content"]}%'
+        )
 
     with s2:
-        st.subheader("Sequence 2")
-        st.write("Length:", stats2["length"])
-        st.write("Nucleotide counts:", stats2["counts"])
-        st.write("GC content:", f'{stats2["gc_content"]}%')
 
-    # Download report
+        st.subheader("Sequence 2")
+
+        st.metric(
+            "Sequence Length",
+            stats2["length"]
+        )
+
+        st.write(
+            "Nucleotide Counts:",
+            stats2["counts"]
+        )
+
+        st.metric(
+            "GC Content",
+            f'{stats2["gc_content"]}%'
+        )
+
+    # --------------------------------------------------
+    # DOWNLOAD REPORT
+    # --------------------------------------------------
 
     report = f"""
 GENEWEAVER DNA ALIGNMENT REPORT
-Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
-Algorithm: {result["algorithm"]}
+Generated:
+{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+Algorithm:
+{result["algorithm"]}
 
 Original Sequence 1:
 {result["seq1"]}
@@ -755,12 +1041,23 @@ Aligned Sequence 1:
 Aligned Sequence 2:
 {aligned2}
 
-Alignment Score: {result["score"]}
-Matches: {result["matches"]}
-Mismatches: {result["mismatches"]}
-Gaps: {result["gaps"]}
-Identity: {result["identity"]:.2f}%
-Execution Time: {result["execution_time"]:.4f} ms
+Alignment Score:
+{result["score"]}
+
+Matches:
+{result["matches"]}
+
+Mismatches:
+{result["mismatches"]}
+
+Gaps:
+{result["gaps"]}
+
+Identity:
+{result["identity"]:.2f}%
+
+Execution Time:
+{result["execution_time"]:.4f} ms
 
 Sequence 1 Statistics:
 {stats1}
@@ -770,12 +1067,11 @@ Sequence 2 Statistics:
 """
 
     st.download_button(
-        "Download Alignment Report",
+        "📥 Download Alignment Report",
         data=report,
         file_name="GeneWeaver_Alignment_Report.txt",
         mime="text/plain"
     )
-
 
 
 # --------------------------------------------------
@@ -783,49 +1079,24 @@ Sequence 2 Statistics:
 # --------------------------------------------------
 
 st.divider()
-st.header("🤖 GeneWeaver AI Chat Assistant")
 
-st.write("Ask questions about DNA, FASTA, alignment algorithms and your alignment results.")
+st.header("🤖 GeneWeaver Help Assistant")
 
-if "chat_messages" not in st.session_state:
-    st.session_state.chat_messages = []
+st.write(
+    "Ask questions about DNA, FASTA, alignment algorithms "
+    "and your alignment results."
+)
 
-def get_chat_answer(question):
-    q = question.lower()
-
-    if "needleman" in q or "global alignment" in q:
-        return "Needleman-Wunsch performs global alignment of two complete DNA sequences."
-
-    elif "smith" in q or "local alignment" in q:
-        return "Smith-Waterman identifies the best local matching region between DNA sequences."
-
-    elif "gc content" in q:
-        return "GC content is the percentage of G and C bases in a DNA sequence."
-
-    elif "fasta" in q:
-        return "FASTA is a text format for storing DNA sequences. Headers begin with >."
-
-    elif "gpu" in q or "opencl" in q:
-        return "GeneWeaver has experimental OpenCL support for GPU-based DNA alignment."
-
-    elif "crisp" in q:
-        return "CRISPR is a gene-editing technology. GeneWeaver focuses on DNA sequence comparison."
-
-    elif "alignment" in q or "dna" in q:
-        return "DNA alignment compares sequences to identify matches, mismatches and gaps."
-
-    else:
-        return "Please ask about DNA, FASTA, GC content, Needleman-Wunsch, Smith-Waterman or CRISPR."
-
-
-# Show previous conversation
 for msg in st.session_state.chat_messages:
+
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
 
-# One input and one send button
-with st.form("geneweaver_chat", clear_on_submit=True):
+with st.form(
+    "geneweaver_chat",
+    clear_on_submit=True
+):
 
     question = st.text_area(
         "Enter your question",
@@ -834,10 +1105,14 @@ with st.form("geneweaver_chat", clear_on_submit=True):
         key="chat_message_box"
     )
 
-    send = st.form_submit_button("Send Message")
+    send = st.form_submit_button(
+        "Send Message"
+    )
 
     if send:
+
         if question.strip():
+
             st.session_state.chat_messages.append({
                 "role": "user",
                 "content": question.strip()
@@ -851,9 +1126,12 @@ with st.form("geneweaver_chat", clear_on_submit=True):
             })
 
             st.rerun()
-        else:
-            st.warning("Please enter a question.")
 
+        else:
+
+            st.warning(
+                "Please enter a question."
+            )
 
 
 # --------------------------------------------------
@@ -862,80 +1140,18 @@ with st.form("geneweaver_chat", clear_on_submit=True):
 
 st.divider()
 
-st.caption(
-    "GeneWeaver | Python DNA Sequence Alignment Project "
-    "| Experimental OpenCL support"
-)
-
-# -------- GENEWEAVER CHAT ASSISTANT --------
-
-st.divider()
-st.header("🤖 GeneWeaver AI Chat Assistant")
-
-st.write(
-    "Ask questions about DNA, FASTA, alignment algorithms "
-    "and your alignment results."
-)
-
-if "chat_messages" not in st.session_state:
-    st.session_state.chat_messages = []
-
-if "chat_question" not in st.session_state:
-    st.session_state.chat_question = ""
-
-# Display previous messages
-for msg in st.session_state.chat_messages:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
-
-
-def get_chat_answer(question):
-    q = question.lower()
-
-    if "dna" in q or "alignment" in q:
-        return "DNA alignment compares two DNA sequences to identify matches, mismatches and gaps."
-
-    elif "fasta" in q:
-        return "FASTA is a text format used to store DNA or protein sequences. Headers start with >."
-
-    elif "gc content" in q:
-        return "GC content is the percentage of G and C bases in a DNA sequence."
-
-    elif "needleman" in q:
-        return "Needleman-Wunsch performs global alignment of two complete sequences."
-
-    elif "smith" in q:
-        return "Smith-Waterman identifies the best local matching region between sequences."
-
-    elif "crisp" in q:
-        return "CRISPR is a gene-editing technology. GeneWeaver focuses on DNA sequence comparison."
-
-    else:
-        return "I can answer questions about DNA, FASTA, GC content, Needleman-Wunsch and Smith-Waterman."
-
-
-# Normal text input, outside a form
-question = st.text_input(
-    "Type your question here",
-    key="geneweaver_question_input",
-    placeholder="Example: What is DNA alignment?"
-)
-
-if st.button("Send Message", key="geneweaver_send_button"):
-
-    if question.strip():
-        st.session_state.chat_messages.append({
-            "role": "user",
-            "content": question.strip()
-        })
-
-        answer = get_chat_answer(question)
-
-        st.session_state.chat_messages.append({
-            "role": "assistant",
-            "content": answer
-        })
-
-        st.rerun()
-    else:
-        st.warning("Please type a question.")
+st.markdown("""
+<div style="
+    text-align:center;
+    padding:18px;
+    color:#94a3b8;
+">
+    <p style="color:#67e8f9;">
+        🧬 GENEWEAVER
+    </p>
+    <p style="font-size:12px;">
+        PYTHON DNA SEQUENCE ALIGNMENT PROJECT
+        • EXPERIMENTAL OPENCL SUPPORT
+    </p>
+</div>
+""", unsafe_allow_html=True)

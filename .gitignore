@@ -227,3 +227,7 @@ __marimo__/
 >>>>>>> e72013dccf3474aa2dc1b74ca83b97a16da541f3
 
 gpu-venv/
+geneweaver_users.db
+*.db
+app_backup.py
+app_login_backup.py
