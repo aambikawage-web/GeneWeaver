@@ -1,368 +1,516 @@
 
-import streamlit as st
+import base64
 import sqlite3
+from pathlib import Path
+
 import bcrypt
-import re
+import streamlit as st
+
 
 DB_NAME = "geneweaver_users.db"
+BACKGROUND_IMAGE = Path(__file__).with_name("login_bg.png")
 
 
-# --------------------------------------------------
-# DATABASE INITIALIZATION
-# --------------------------------------------------
+# ==================================================
+# DATABASE FUNCTIONS
+# ==================================================
 
 def initialize_database():
-    with sqlite3.connect(DB_NAME) as conn:
+    conn = sqlite3.connect(DB_NAME)
+
+    try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 full_name TEXT NOT NULL,
-                email TEXT NOT NULL COLLATE NOCASE UNIQUE,
-                username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                email TEXT NOT NULL,
+                username TEXT NOT NULL,
                 password_hash BLOB NOT NULL
             )
         """)
+        conn.commit()
+    finally:
+        conn.close()
 
-
-# --------------------------------------------------
-# USER REGISTRATION
-# --------------------------------------------------
 
 def register_user(full_name, email, username, password):
-
-    full_name = full_name.strip()
-    email = email.strip().lower()
-    username = username.strip()
 
     if not all([full_name, email, username, password]):
         return False, "Please fill in all fields."
 
-    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-        return False, "Please enter a valid email address."
-
-    if len(username) < 3:
-        return False, "Username must have at least 3 characters."
-
-    if len(password) < 8:
-        return False, "Password must have at least 8 characters."
-
     if len(password.encode("utf-8")) > 72:
-        return False, "Password must be at most 72 bytes."
+        return False, "Password must be 72 bytes or fewer."
 
-    password_hash = bcrypt.hashpw(
-        password.encode("utf-8"),
-        bcrypt.gensalt()
-    )
+    conn = sqlite3.connect(DB_NAME)
 
     try:
-        with sqlite3.connect(DB_NAME) as conn:
-            conn.execute("""
-                INSERT INTO users
-                (full_name, email, username, password_hash)
-                VALUES (?, ?, ?, ?)
-            """, (
-                full_name,
-                email,
-                username,
-                password_hash
-            ))
+        cursor = conn.cursor()
 
-        return True, "Account created successfully!"
-
-    except sqlite3.IntegrityError:
-        return False, "Email or username is already registered."
-
-
-# --------------------------------------------------
-# USER LOGIN
-# --------------------------------------------------
-
-def login_user(identifier, password):
-
-    identifier = identifier.strip()
-
-    with sqlite3.connect(DB_NAME) as conn:
-        user = conn.execute("""
-            SELECT full_name, username, password_hash
-            FROM users
-            WHERE username = ? OR email = ?
-        """, (
-            identifier,
-            identifier
-        )).fetchone()
-
-    if user is None:
-        return False, None
-
-    try:
-        valid = bcrypt.checkpw(
-            password.encode("utf-8"),
-            user[2]
+        cursor.execute(
+            "SELECT id FROM users WHERE username=? OR email=?",
+            (username, email)
         )
-    except (ValueError, TypeError):
-        valid = False
 
-    if valid:
-        return True, {
-            "full_name": user[0],
-            "username": user[1]
-        }
+        if cursor.fetchone():
+            return False, "Username or email already exists."
+
+        password_hash = bcrypt.hashpw(
+            password.encode("utf-8"),
+            bcrypt.gensalt()
+        )
+
+        cursor.execute("""
+            INSERT INTO users
+            (full_name, email, username, password_hash)
+            VALUES (?, ?, ?, ?)
+        """, (
+            full_name,
+            email,
+            username,
+            password_hash
+        ))
+
+        conn.commit()
+
+        return True, "Account created successfully! Please log in."
+
+    finally:
+        conn.close()
+
+
+def login_user(username_or_email, password):
+
+    conn = sqlite3.connect(DB_NAME)
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT full_name, password_hash
+            FROM users
+            WHERE username=? OR email=?
+        """, (
+            username_or_email,
+            username_or_email
+        ))
+
+        user = cursor.fetchone()
+
+    finally:
+        conn.close()
+
+    if user and bcrypt.checkpw(
+        password.encode("utf-8"),
+        user[1]
+    ):
+        return True, user[0]
 
     return False, None
 
 
-# --------------------------------------------------
+# ==================================================
+# BACKGROUND IMAGE
+# ==================================================
+
+def get_background_image():
+
+    if not BACKGROUND_IMAGE.exists():
+        return None
+
+    image_bytes = BACKGROUND_IMAGE.read_bytes()
+
+    encoded = base64.b64encode(
+        image_bytes
+    ).decode("utf-8")
+
+    return f"data:image/png;base64,{encoded}"
+
+
+# ==================================================
 # LOGIN PAGE DESIGN
-# --------------------------------------------------
+# ==================================================
 
-def login_page_css():
+def apply_login_css(background):
 
-    st.markdown("""
+    if background:
+        background_style = f"""
+            background-image: url("{background}");
+            background-position: center center;
+            background-repeat: no-repeat;
+            background-size: 100% 100%;
+        """
+    else:
+        background_style = """
+            background:
+                linear-gradient(135deg, #020817, #071b3d);
+        """
+
+    st.markdown(f"""
     <style>
 
-    .stApp {
-        background:
-            radial-gradient(
-                circle at 10% 15%,
-                #172554 0%,
-                transparent 35%
-            ),
-            radial-gradient(
-                circle at 90% 85%,
-                #312e81 0%,
-                transparent 35%
-            ),
-            #070d1c;
-    }
+    /* FULL SCREEN BACKGROUND */
 
-    .main .block-container {
-        max-width: 1200px;
-        padding-top: 3rem;
-    }
+    [data-testid="stAppViewContainer"] {{
+        {background_style}
+        min-height: 100vh;
+    }}
 
-    .login-title {
-        text-align: center;
-        font-size: 52px;
-        font-weight: 900;
-        background: linear-gradient(
-            90deg,
-            #22d3ee,
-            #818cf8,
-            #c084fc
-        );
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 5px;
-    }
+    [data-testid="stHeader"] {{
+        background: transparent;
+    }}
 
-    .login-subtitle {
-        text-align: center;
-        color: #a5b4fc;
-        font-size: 15px;
-        letter-spacing: 2px;
-        margin-bottom: 30px;
-    }
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    footer,
+    #MainMenu {{
+        display: none !important;
+    }}
 
-    div[data-testid="stForm"] {
-        background: rgba(20, 32, 57, 0.88);
-        border: 1px solid #334e75;
-        border-radius: 18px;
-        padding: 25px;
-        box-shadow: 0 12px 40px rgba(0,0,0,0.35);
-    }
+    [data-testid="stMain"] {{
+        background: transparent !important;
+    }}
 
-    .stTextInput input {
-        background: #101d33 !important;
+    .block-container {{
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }}
+
+
+    /* LOGIN PANEL POSITION */
+
+    .st-key-geneweaver_auth_overlay {{
+        position: fixed !important;
+        z-index: 9999 !important;
+
+        top: 41.2vh !important;
+        left: 62.15vw !important;
+
+        width: 29.15vw !important;
+        max-width: 490px !important;
+        min-width: 300px !important;
+
+        padding: 0 !important;
+        margin: 0 !important;
+
+        background: transparent !important;
+    }}
+
+
+    /* LOGIN AND REGISTER TABS */
+
+    .st-key-geneweaver_auth_overlay
+    [data-baseweb="tab-list"] {{
+        gap: 4px !important;
+        border-bottom: 0 !important;
+        background: transparent !important;
+    }}
+
+    .st-key-geneweaver_auth_overlay
+    button[data-baseweb="tab"] {{
         color: white !important;
-        border: 1px solid #405579 !important;
-        border-radius: 9px !important;
-    }
 
-    .stFormSubmitButton button {
+        background: rgba(3, 24, 62, 0.85) !important;
+
+        border: 1px solid #159eea !important;
+        border-radius: 13px 13px 0 0 !important;
+
+        padding: 9px 8px !important;
+        min-height: 42px !important;
+
+        flex: 1 !important;
+    }}
+
+    .st-key-geneweaver_auth_overlay
+    button[data-baseweb="tab"][aria-selected="true"] {{
+        color: white !important;
+
         background: linear-gradient(
-            90deg,
-            #0891b2,
-            #6366f1
+            105deg,
+            #00bfff,
+            #174fff
         ) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 9px !important;
-        height: 45px;
-        font-weight: 700;
-    }
 
-    .stTabs [data-baseweb="tab"] {
-        color: #cbd5e1;
-        font-weight: 600;
-    }
+        box-shadow: 0 0 16px #00d2ff !important;
+        border-color: #28dcff !important;
+    }}
+
+    .st-key-geneweaver_auth_overlay
+    [data-testid="stTabContent"] {{
+        padding: 12px 2px 0 !important;
+        background: transparent !important;
+    }}
+
+
+    /* INPUT FIELDS */
+
+    .st-key-geneweaver_auth_overlay label,
+    .st-key-geneweaver_auth_overlay p {{
+        color: #eaf6ff !important;
+    }}
+
+    .st-key-geneweaver_auth_overlay input {{
+        color: white !important;
+
+        background: rgba(8, 29, 67, 0.96) !important;
+
+        border: 1px solid #4d9fe8 !important;
+        border-radius: 15px !important;
+
+        min-height: 43px !important;
+
+        box-shadow: inset 0 0 12px
+            rgba(0, 110, 255, 0.12) !important;
+    }}
+
+    .st-key-geneweaver_auth_overlay input::placeholder {{
+        color: #a9c3e5 !important;
+    }}
+
+    .st-key-geneweaver_auth_overlay input:focus {{
+        border-color: #00eaff !important;
+        box-shadow: 0 0 12px #00eaff70 !important;
+    }}
+
+
+    /* REMEMBER ME */
+
+    .st-key-geneweaver_auth_overlay
+    [data-testid="stCheckbox"] {{
+        margin: 2px 0 7px !important;
+    }}
+
+
+    /* LOGIN BUTTON */
+
+    .st-key-geneweaver_auth_overlay
+    [data-testid="stFormSubmitButton"] button {{
+
+        width: 100% !important;
+        min-height: 48px !important;
+
+        color: white !important;
+        font-size: 17px !important;
+        font-weight: 800 !important;
+
+        border: 1px solid #39eaff !important;
+        border-radius: 28px !important;
+
+        background: linear-gradient(
+            100deg,
+            #00cfff,
+            #145dff 58%,
+            #a33cff
+        ) !important;
+
+        box-shadow: 0 0 18px #00aeff !important;
+
+    }}
+
+    .st-key-geneweaver_auth_overlay
+    [data-testid="stFormSubmitButton"] button:hover {{
+        filter: brightness(1.15);
+        box-shadow: 0 0 25px #00e1ff !important;
+    }}
+
+
+    /* ERROR AND SUCCESS MESSAGES */
+
+    .st-key-geneweaver_auth_overlay
+    [data-testid="stAlert"] {{
+        background: rgba(4, 19, 48, 0.96) !important;
+        border: 1px solid #258ed4 !important;
+    }}
+
+
+    /* MOBILE RESPONSIVE DESIGN */
+
+    @media (max-width: 850px) {{
+
+        [data-testid="stAppViewContainer"] {{
+            background-size: cover !important;
+            background-position: 40% center !important;
+        }}
+
+        .st-key-geneweaver_auth_overlay {{
+            top: 24vh !important;
+            left: 5vw !important;
+
+            width: 90vw !important;
+            max-width: none !important;
+            min-width: 0 !important;
+
+            padding: 18px !important;
+
+            border: 1px solid #28cfff !important;
+            border-radius: 20px !important;
+
+            background: rgba(3, 18, 48, 0.94) !important;
+
+            box-shadow: 0 0 25px #007bff75 !important;
+        }}
+    }}
 
     </style>
     """, unsafe_allow_html=True)
 
 
-# --------------------------------------------------
-# LOGIN AND REGISTRATION INTERFACE
-# --------------------------------------------------
+# ==================================================
+# MAIN LOGIN FUNCTION
+# ==================================================
 
 def require_login():
 
     initialize_database()
 
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
-
-    if st.session_state.logged_in:
+    if st.session_state.get("logged_in", False):
         return True
 
-    login_page_css()
+    background = get_background_image()
 
-    st.markdown(
-        '<div class="login-title">🧬 GeneWeaver</div>',
-        unsafe_allow_html=True
-    )
+    apply_login_css(background)
 
-    st.markdown(
-        '<div class="login-subtitle">'
-        'NEXT-GENERATION DNA SEQUENCE ANALYSIS PLATFORM'
-        '</div>',
-        unsafe_allow_html=True
-    )
+    if background is None:
+        st.warning(
+            "login_bg.png not found. "
+            "Place the reference image beside auth.py."
+        )
 
-    left, center, right = st.columns([1, 1.5, 1])
-
-    with center:
+    with st.container(key="geneweaver_auth_overlay"):
 
         login_tab, register_tab = st.tabs([
             "🔐 Login",
-            "✨ Create Account"
+            "👤 Create Account"
         ])
 
-        # LOGIN TAB
+        # ---------------- LOGIN ----------------
 
         with login_tab:
 
-            st.markdown("### Welcome Back")
+            with st.form("geneweaver_login_form"):
 
-            st.caption(
-                "Sign in to access your DNA analysis workspace."
-            )
-
-            with st.form("login_form"):
-
-                identifier = st.text_input(
+                username = st.text_input(
                     "Username or Email",
-                    placeholder="Enter your username or email"
+                    placeholder="Username or Email"
                 )
 
                 password = st.text_input(
                     "Password",
-                    type="password",
-                    placeholder="Enter your password"
+                    placeholder="Password",
+                    type="password"
                 )
 
-                login_button = st.form_submit_button(
-                    "Sign In →",
+                st.checkbox(
+                    "Remember Me",
+                    key="remember_login"
+                )
+
+                submitted = st.form_submit_button(
+                    "Login  ➜",
                     use_container_width=True
                 )
 
-            if login_button:
+                if submitted:
 
-                if not identifier.strip() or not password:
-                    st.error("Please enter your login details.")
-
-                else:
-
-                    success, user = login_user(
-                        identifier,
-                        password
-                    )
-
-                    if success:
-
-                        st.session_state.logged_in = True
-                        st.session_state.full_name = user["full_name"]
-                        st.session_state.username = user["username"]
-
-                        st.rerun()
-
-                    else:
+                    if not username.strip() or not password:
                         st.error(
-                            "Invalid username/email or password. "
-                            "Please register first if you are a new user."
+                            "Please enter your username/email and password."
                         )
 
-        # REGISTRATION TAB
+                    else:
+
+                        success, full_name = login_user(
+                            username.strip(),
+                            password
+                        )
+
+                        if success:
+
+                            st.session_state.logged_in = True
+
+                            st.session_state.full_name = full_name
+
+                            st.rerun()
+
+                        else:
+
+                            st.error(
+                                "Incorrect username/email or password."
+                            )
+
+
+        # ---------------- REGISTER ----------------
 
         with register_tab:
 
-            st.markdown("### Join GeneWeaver")
-
-            st.caption(
-                "Create your account to start exploring DNA sequences."
-            )
-
-            with st.form("register_form"):
+            with st.form("geneweaver_register_form"):
 
                 full_name = st.text_input(
                     "Full Name",
-                    placeholder="Enter your full name"
+                    placeholder="Full Name"
                 )
 
                 email = st.text_input(
                     "Email Address",
-                    placeholder="Enter your email"
+                    placeholder="Email Address"
                 )
 
-                username = st.text_input(
+                new_username = st.text_input(
                     "Username",
                     placeholder="Choose a username"
                 )
 
                 new_password = st.text_input(
-                    "Create Password",
-                    type="password",
-                    placeholder="Minimum 8 characters"
+                    "Password",
+                    placeholder="Create a password",
+                    type="password"
                 )
 
                 confirm_password = st.text_input(
                     "Confirm Password",
-                    type="password",
-                    placeholder="Re-enter your password"
+                    placeholder="Confirm your password",
+                    type="password"
                 )
 
-                register_button = st.form_submit_button(
-                    "Create My Account →",
+                submitted = st.form_submit_button(
+                    "Create Account ➜",
                     use_container_width=True
                 )
 
-            if register_button:
+                if submitted:
 
-                if new_password != confirm_password:
-                    st.error("Passwords do not match.")
+                    if new_password != confirm_password:
 
-                else:
-
-                    success, message = register_user(
-                        full_name,
-                        email,
-                        username,
-                        new_password
-                    )
-
-                    if success:
-                        st.success(
-                            message + " Please go to Login."
-                        )
+                        st.error("Passwords do not match.")
 
                     else:
-                        st.error(message)
 
-    st.markdown(
-        "<p style='text-align:center;color:#64748b;"
-        "font-size:12px;margin-top:35px;'>"
-        "GENEWEAVER • DNA ALIGNMENT • BIOINFORMATICS"
-        "</p>",
-        unsafe_allow_html=True
-    )
+                        success, message = register_user(
+                            full_name.strip(),
+                            email.strip(),
+                            new_username.strip(),
+                            new_password
+                        )
 
-    return False
+                        if success:
+                            st.success(message)
+
+                        else:
+                            st.error(message)
+
+    st.stop()
+
+
+# ==================================================
+# LOGOUT FUNCTION
+# ==================================================
+
+def logout_user():
+
+    st.session_state.logged_in = False
+
+    st.session_state.pop("full_name", None)
+
+    st.session_state.pop("remember_login", None)
+
+    st.rerun()

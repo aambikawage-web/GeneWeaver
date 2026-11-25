@@ -23,6 +23,14 @@ st.set_page_config(
 
 
 # --------------------------------------------------
+# USER AUTHENTICATION
+# --------------------------------------------------
+
+if not require_login():
+    st.stop()
+
+
+# --------------------------------------------------
 # DASHBOARD DESIGN
 # --------------------------------------------------
 
@@ -33,8 +41,13 @@ st.markdown("""
     background:
         radial-gradient(
             circle at 90% 0%,
-            rgba(49, 46, 129, 0.15),
+            rgba(0, 210, 255, 0.12),
             transparent 30%
+        ),
+        radial-gradient(
+            circle at 10% 90%,
+            rgba(49, 46, 129, 0.18),
+            transparent 35%
         ),
         #080d19;
     color: #f1f5f9;
@@ -133,11 +146,8 @@ hr {
 
 
 # --------------------------------------------------
-# USER AUTHENTICATION
+# SIDEBAR AND LOGOUT
 # --------------------------------------------------
-
-if not require_login():
-    st.stop()
 
 st.sidebar.markdown(
     """
@@ -167,7 +177,6 @@ if st.sidebar.button(
     "🚪 Logout",
     use_container_width=True
 ):
-
     st.session_state.logged_in = False
 
     st.session_state.pop("full_name", None)
@@ -351,11 +360,12 @@ def get_chat_answer(question):
 
 st.markdown("""
 <div style="
-    background:linear-gradient(120deg,#122d50,#312e81);
+    background:linear-gradient(120deg,#122d50,#123b59,#312e81);
     padding:28px;
     border-radius:18px;
     border:1px solid #3b5b8a;
     margin-bottom:22px;
+    box-shadow:0 8px 25px rgba(0,180,255,0.10);
 ">
     <h1 style="
         font-size:38px;
@@ -675,7 +685,9 @@ if result is not None:
 
     st.subheader("Alignment Visualization")
 
+    # ----------------------------------------------
     # ALIGNMENT COMPOSITION
+    # ----------------------------------------------
 
     composition = pd.DataFrame({
         "Type": [
@@ -711,7 +723,9 @@ if result is not None:
         font_color="white"
     )
 
+    # ----------------------------------------------
     # DNA COMPOSITION
+    # ----------------------------------------------
 
     stats1 = get_dna_statistics(result["seq1"])
     stats2 = get_dna_statistics(result["seq2"])
@@ -755,7 +769,9 @@ if result is not None:
         font_color="white"
     )
 
+    # ----------------------------------------------
     # SIMILARITY PROFILE
+    # ----------------------------------------------
 
     positions = list(
         range(1, len(aligned1) + 1)
@@ -791,7 +807,9 @@ if result is not None:
         font_color="white"
     )
 
+    # ----------------------------------------------
     # ALIGNMENT REGIONS
+    # ----------------------------------------------
 
     region_values = []
 
@@ -831,7 +849,9 @@ if result is not None:
         font_color="white"
     )
 
+    # ----------------------------------------------
     # DISPLAY CHARTS
+    # ----------------------------------------------
 
     chart_col1, chart_col2 = st.columns(2)
 
@@ -859,9 +879,9 @@ if result is not None:
             use_container_width=True
         )
 
-    # --------------------------------------------------
+    # ----------------------------------------------
     # ALIGNMENT VIEWS
-    # --------------------------------------------------
+    # ----------------------------------------------
 
     st.divider()
 
@@ -968,9 +988,9 @@ if result is not None:
             f'{result["execution_time"]:.4f} ms'
         )
 
-    # --------------------------------------------------
+    # ----------------------------------------------
     # DNA STATISTICS
-    # --------------------------------------------------
+    # ----------------------------------------------
 
     st.divider()
 
@@ -1016,9 +1036,9 @@ if result is not None:
             f'{stats2["gc_content"]}%'
         )
 
-    # --------------------------------------------------
+    # ----------------------------------------------
     # DOWNLOAD REPORT
-    # --------------------------------------------------
+    # ----------------------------------------------
 
     report = f"""
 GENEWEAVER DNA ALIGNMENT REPORT
